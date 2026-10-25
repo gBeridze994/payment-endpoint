@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from shop.db.models import Cart, CartStatus, Payment, PaymentStatus, UserPaymentMethod
 
@@ -193,6 +194,14 @@ def test_user_without_default_payment_method_cannot_pay(client, make_user, make_
 
     assert response.status_code == 422
     assert response.json["error"]["code"] == "payment_method_not_found"
+
+
+def test_user_cannot_have_two_default_payment_methods(session, make_user):
+    user = make_user(card_token="tok_visa")
+    session.add(UserPaymentMethod(user_id=user.id, provider_token="tok_amex", is_default=True))
+
+    with pytest.raises(IntegrityError):
+        session.commit()
 
 
 def test_user_cannot_pay_with_another_users_card(client, session, make_user, make_cart):

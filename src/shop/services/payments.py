@@ -125,7 +125,7 @@ def _find_payment_method(
     else:
         query = query.where(UserPaymentMethod.id == payment_method_id)
 
-    payment_method = session.scalars(query).first()
+    payment_method = session.scalar(query)
     if payment_method is None:
         raise PaymentMethodNotFound("Payment method not found.")
     return payment_method

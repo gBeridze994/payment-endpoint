@@ -104,6 +104,7 @@ migrations/                 # Alembic (settings in pyproject.toml)
   versions/
     0001_base_schema.py     #   applies sql/base_schema.sql
     0002_payments.py        #   the payments table
+    0003_one_default_payment_method.py  # at most one default card per user
 tests/                      # unit/ and integration/
 Dockerfile                  # multi-stage build, runs gunicorn as a non-root user
 docker-compose.yml          # db, migrate (one-off) and api services
@@ -131,6 +132,7 @@ Optional JSON body:
 ```
 
 If no payment method is given, the user's default payment method is used.
+A user has at most one default payment method (enforced by the database).
 
 Response body (for 201, 202 and 402):
 
@@ -204,6 +206,8 @@ call fails, there is a record of the attempt, and the cart cannot be charged a s
 - **Authentication** is out of scope. An upstream auth layer is assumed to verify the user
   and pass their id in the `X-User-Id` header. A user can only pay for their own carts
   with their own payment methods. Someone else's cart returns `404`, so its existence is not revealed.
+- **One default card:** the base schema allows several default payment methods per user, which makes
+  "pay with the default card" ambiguous. Revision `0003` adds a unique index so a user has at most one.
 - **Total calculation:** the task says this service already exists. `shop/cart_total.py` is a stand-in
   that sums `quantity × unit_price` and assumes one currency per cart.
 - **Payment provider:** `MockPaymentProvider` declines any card token that contains `declined`
