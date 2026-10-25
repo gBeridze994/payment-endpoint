@@ -4,7 +4,7 @@ from flask import Blueprint, Response, jsonify
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from shop.api.dependencies import get_db_sessions
+from shop.db import get_sessions
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ health_blueprint = Blueprint("health", __name__)
 def health() -> tuple[Response, int]:
     """Reports whether the service can reach its database."""
     try:
-        with get_db_sessions()() as session:
+        with get_sessions()() as session:
             session.execute(text("SELECT 1"))
     except SQLAlchemyError:
         logger.exception("Health check failed: database unreachable")

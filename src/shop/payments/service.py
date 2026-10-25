@@ -5,10 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from shop.db.models import Cart, CartStatus, Payment, PaymentStatus, UserPaymentMethod
-from shop.integrations.payment_provider import PaymentProvider
-from shop.services.cart_total import calculate_cart_total
-from shop.services.errors import (
+from shop.models import Cart, CartStatus, UserPaymentMethod
+from shop.payments.cart_total import calculate_cart_total
+from shop.payments.errors import (
     CartNotFound,
     CartNotPayable,
     EmptyCart,
@@ -16,6 +15,8 @@ from shop.services.errors import (
     PaymentConflict,
     PaymentMethodNotFound,
 )
+from shop.payments.models import Payment, PaymentStatus
+from shop.payments.provider import PaymentProvider
 
 logger = logging.getLogger(__name__)
 

@@ -1,26 +1,23 @@
+"""Tables of the base schema, owned by the existing parts of the shop.
+
+Only the columns the payment part needs are mapped.
+"""
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from sqlalchemy import ForeignKey, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-
-class Base(DeclarativeBase):
-    pass
+from shop.db import Base
 
 
 class CartStatus(StrEnum):
     ACTIVE = "active"
     CHECKED_OUT = "checked_out"
     ABANDONED = "abandoned"
-
-
-class PaymentStatus(StrEnum):
-    PENDING = "pending"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
 
 
 class User(Base):
@@ -72,20 +69,3 @@ class UserPaymentMethod(Base):
     provider_token: Mapped[str]
     last_four: Mapped[str | None]
     is_default: Mapped[bool] = mapped_column(default=False)
-
-
-class Payment(Base):
-    __tablename__ = "payments"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    cart_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("carts.id"))
-    payment_method_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user_payment_methods.id"))
-    amount: Mapped[Decimal]
-    currency: Mapped[str]
-    status: Mapped[str] = mapped_column(default=PaymentStatus.PENDING)
-    idempotency_key: Mapped[str]
-    provider_payment_id: Mapped[str | None]
-    failure_reason: Mapped[str | None]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
