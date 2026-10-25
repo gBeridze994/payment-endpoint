@@ -132,6 +132,13 @@ Optional JSON body:
 
 If no payment method is given, the user's default payment method is used.
 
+**Idempotency:** the `Idempotency-Key` identifies one payment attempt: one cart charged with one
+payment method. If the key was used before with the same cart and payment method, the endpoint
+returns the first payment and charges nothing. If the cart or the payment method differs, it returns
+`422 idempotency_key_reused`. A request without `payment_method_id` means the default payment method,
+so it is compared with the user's current default. To pay with another card (for example after a
+decline), send a new key.
+
 Response body (for 201, 202 and 402):
 
 ```json
@@ -157,7 +164,7 @@ The amount is a string so no precision is lost.
 | 401    | Missing or invalid `X-User-Id`.                                                   |
 | 404    | The cart does not exist or belongs to another user.                               |
 | 409    | The cart is not active, or a payment for it is already in progress.              |
-| 422    | Empty cart, payment method not found, or idempotency key used for another cart.  |
+| 422    | Empty cart, payment method not found, or idempotency key reused for another cart or payment method. |
 | 500    | Unexpected error, e.g. the provider is unreachable (the payment stays `pending`). |
 
 Every error, including unknown routes and unexpected failures, has the same JSON shape:
@@ -182,9 +189,11 @@ A partial unique index enforces this in the database.
 ### Payment flow
 
 1. **Transaction 1:** lock the cart row (`SELECT … FOR UPDATE`), then:
-   - return the earlier payment if the idempotency key was seen before;
+   - find the payment method (the one in the request, or the default);
+   - return the earlier payment if the idempotency key was seen before with the same cart and
+     payment method, or reject the request if either differs;
    - check that the cart is active, not empty and has no payment in progress;
-   - pick the payment method, get the total, and insert a `pending` payment. Then commit.
+   - get the total and insert a `pending` payment. Then commit.
 2. **Call the provider**, outside any transaction, so no lock is held while waiting for the network.
    The payment id is sent as the provider's idempotency key.
 3. **Transaction 2:** mark the payment `succeeded` (and the cart `checked_out`) or `failed`.
@@ -194,7 +203,8 @@ call fails, there is a record of the attempt, and the cart cannot be charged a s
 
 ### Protection against double charging
 
-- The same request sent again (same `Idempotency-Key`) returns the first payment and does not charge again.
+- A request sent again with the same `Idempotency-Key` returns the first payment and does not charge
+  again. If it names a different cart or payment method, it is rejected with `422`.
 - Two different requests for the same cart run one at a time because of the cart row lock.
   The second one gets `409`. The partial unique index is a second safeguard in the database.
 - A paid cart is `checked_out` and cannot be paid again.
