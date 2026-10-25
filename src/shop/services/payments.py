@@ -38,16 +38,15 @@ def start_cart_payment(
     try:
         with sessions.begin() as session:
             cart = _lock_users_cart(session, user_id, cart_id)
+            payment_method = _find_payment_method(session, user_id, payment_method_id)
 
             replayed_payment = _find_payment_by_idempotency_key(session, user_id, idempotency_key)
             if replayed_payment is not None:
-                if replayed_payment.cart_id != cart_id:
-                    raise IdempotencyKeyReused("This idempotency key was used for another cart.")
+                _ensure_replay_matches(replayed_payment, cart_id, payment_method.id)
                 logger.info("Replaying payment %s for cart %s", replayed_payment.id, cart_id)
                 return replayed_payment
 
             _ensure_cart_is_payable(session, cart)
-            payment_method = _find_payment_method(session, user_id, payment_method_id)
             total = calculate_cart_total(cart)
             payment = Payment(
                 user_id=user_id,
@@ -100,6 +99,16 @@ def _find_payment_by_idempotency_key(
             Payment.user_id == user_id, Payment.idempotency_key == idempotency_key
         )
     )
+
+
+def _ensure_replay_matches(
+    payment: Payment, cart_id: uuid.UUID, payment_method_id: uuid.UUID
+) -> None:
+    """A reused idempotency key must describe the same payment as the first request."""
+    if payment.cart_id != cart_id:
+        raise IdempotencyKeyReused("This idempotency key was used for another cart.")
+    if payment.payment_method_id != payment_method_id:
+        raise IdempotencyKeyReused("This idempotency key was used with another payment method.")
 
 
 def _ensure_cart_is_payable(session: Session, cart: Cart) -> None:

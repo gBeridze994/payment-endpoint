@@ -77,7 +77,7 @@ def test_retry_with_same_idempotency_key_returns_same_payment_without_charging_a
     assert len(provider.charges) == 1
 
 
-def test_retry_with_same_idempotency_key_and_another_card_returns_first_payment(
+def test_idempotency_key_cannot_be_reused_with_another_card(
     client, provider, session, make_user, make_cart
 ):
     user = make_user(card_token="tok_visa")
@@ -95,9 +95,9 @@ def test_retry_with_same_idempotency_key_and_another_card_returns_first_payment(
         json={"payment_method_id": str(other_card.id)},
     )
 
-    assert retry.status_code == 201
-    assert retry.json == first.json
-    assert retry.json["payment_method_id"] != str(other_card.id)
+    assert first.status_code == 201
+    assert retry.status_code == 422
+    assert retry.json["error"]["code"] == "idempotency_key_reused"
     assert [charge["card_token"] for charge in provider.charges] == ["tok_visa"]
 
 
