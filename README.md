@@ -132,6 +132,11 @@ Optional JSON body:
 
 If no payment method is given, the user's default payment method is used.
 
+**Idempotency:** the `Idempotency-Key` identifies one payment attempt for one cart, whatever payment
+method is sent. If the key was used before, the endpoint returns the first payment and charges
+nothing, even when the request names a different `payment_method_id`. To pay with another card
+(for example after a decline), send a new key. Reusing a key for a different cart returns `422`.
+
 Response body (for 201, 202 and 402):
 
 ```json
@@ -194,7 +199,8 @@ call fails, there is a record of the attempt, and the cart cannot be charged a s
 
 ### Protection against double charging
 
-- The same request sent again (same `Idempotency-Key`) returns the first payment and does not charge again.
+- A request sent again with the same `Idempotency-Key` returns the first payment and does not charge
+  again, even if it names a different payment method.
 - Two different requests for the same cart run one at a time because of the cart row lock.
   The second one gets `409`. The partial unique index is a second safeguard in the database.
 - A paid cart is `checked_out` and cannot be paid again.
