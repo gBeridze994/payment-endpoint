@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, func
+from sqlalchemy import FetchedValue, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from shop.db import Base
@@ -29,4 +29,7 @@ class Payment(Base):
     provider_payment_id: Mapped[str | None]
     failure_reason: Mapped[str | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+    # Set by the database trigger on every update (migration 0004).
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), server_onupdate=FetchedValue()
+    )

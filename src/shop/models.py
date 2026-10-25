@@ -4,7 +4,6 @@ Only the columns the payment part needs are mapped.
 """
 
 import uuid
-from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -44,7 +43,6 @@ class Cart(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     status: Mapped[str] = mapped_column(default=CartStatus.ACTIVE)
-    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
     items: Mapped[list[CartItem]] = relationship()
 
