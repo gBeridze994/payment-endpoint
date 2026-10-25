@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from shop.models import Cart, CartStatus, UserPaymentMethod
+from shop.models import Cart, CartItem, CartStatus, Product, UserPaymentMethod
 from shop.payments.models import Payment, PaymentStatus
 
 
@@ -181,6 +181,26 @@ def test_inactive_cart_cannot_be_paid(client, make_user, make_cart, status):
     assert response.json["error"]["code"] == "cart_not_payable"
 
 
+@pytest.mark.parametrize("unit_price", ["0.00", "-5.00"])
+def test_cart_with_total_not_above_zero_cannot_be_paid(
+    client, provider, session, make_user, unit_price
+):
+    user = make_user()
+    product = Product(name="Sticker", price=Decimal("0.00"), currency="USD", stock_quantity=1)
+    cart = Cart(
+        user_id=user.id,
+        items=[CartItem(product=product, quantity=1, unit_price=Decimal(unit_price))],
+    )
+    session.add(cart)
+    session.commit()
+
+    response = pay(client, cart.id, user.id)
+
+    assert response.status_code == 422
+    assert response.json["error"]["code"] == "invalid_cart_total"
+    assert provider.charges == []
+
+
 def test_empty_cart_cannot_be_paid(client, make_user, make_cart):
     user = make_user()
     cart = make_cart(user, with_items=False)
@@ -291,4 +311,23 @@ def test_concurrent_requests_for_same_cart_charge_card_once(client, provider, ma
         status_codes = sorted(executor.map(pay_concurrently, range(2)))
 
     assert status_codes == [201, 409]
+    assert len(provider.charges) == 1
+
+
+def test_concurrent_requests_with_same_key_for_different_carts_charge_once(
+    client, provider, make_user, make_cart
+):
+    user = make_user()
+    carts = [make_cart(user), make_cart(user)]
+    start_together = threading.Barrier(2)
+
+    def pay_concurrently(cart):
+        start_together.wait()
+        response = pay(client.application.test_client(), cart.id, user.id, idempotency_key="k")
+        return response.status_code, response.json.get("error", {}).get("code")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = sorted(executor.map(pay_concurrently, carts))
+
+    assert results == [(201, None), (422, "idempotency_key_reused")]
     assert len(provider.charges) == 1

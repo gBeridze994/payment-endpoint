@@ -171,7 +171,7 @@ The amount is a string so no precision is lost.
 | 401    | Missing or invalid `X-User-Id`.                                                   |
 | 404    | The cart does not exist or belongs to another user.                               |
 | 409    | The cart is not active, or a payment for it is already in progress.              |
-| 422    | Empty cart, payment method not found, or idempotency key reused for another cart or payment method. |
+| 422    | Empty cart, cart total not above 0, payment method not found, or idempotency key reused for another cart or payment method. |
 | 500    | Unexpected error, e.g. the provider is unreachable (the payment stays `pending`). |
 
 Every error, including unknown routes and unexpected failures, has the same JSON shape:
@@ -200,7 +200,7 @@ A partial unique index enforces this in the database.
    - return the earlier payment if the idempotency key was seen before with the same cart and
      payment method, or reject the request if either differs;
    - check that the cart is active, not empty and has no payment in progress;
-   - get the total and insert a `pending` payment. Then commit.
+   - get the total, check that it is above 0, and insert a `pending` payment. Then commit.
 2. **Call the provider**, outside any transaction, so no lock is held while waiting for the network.
    The payment id is sent as the provider's idempotency key.
 3. **Transaction 2:** mark the payment `succeeded` (and the cart `checked_out`) or `failed`.
@@ -223,8 +223,10 @@ call fails, there is a record of the attempt, and the cart cannot be charged a s
   with their own payment methods. Someone else's cart returns `404`, so its existence is not revealed.
 - **One default card:** the base schema allows several default payment methods per user, which makes
   "pay with the default card" ambiguous. Revision `0003` adds a unique index so a user has at most one.
-- **Total calculation:** the task says this service already exists. `shop/cart_total.py` is a stand-in
-  that sums `quantity × unit_price` and assumes one currency per cart.
+- **Total calculation:** the task says this service already exists. `shop/payments/cart_total.py` is a
+  stand-in that sums `quantity × unit_price` and assumes one currency per cart. A total of 0 or less
+  is rejected with `422 invalid_cart_total`: the base schema allows such carts, and there is nothing
+  to charge.
 - **Payment provider:** `MockPaymentProvider` declines any card token that contains `declined`
   (e.g. `tok_declined`). Every other token succeeds. The charge is synchronous.
 - **Provider errors** (timeouts, network failures) are not handled with retries. The payment stays
