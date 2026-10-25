@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 
 from shop import create_app
 from shop.config import Settings
-from shop.db.models import Cart, CartItem, CartStatus, Product, User, UserPaymentMethod
-from shop.integrations.payment_provider import MockPaymentProvider
+from shop.models import Cart, CartItem, CartStatus, Product, User, UserPaymentMethod
+from shop.payments.provider import MockPaymentProvider
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/shop_test"

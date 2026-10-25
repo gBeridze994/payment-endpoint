@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from shop.db.models import Cart
+from shop.models import Cart
 
 
 @dataclass(frozen=True)

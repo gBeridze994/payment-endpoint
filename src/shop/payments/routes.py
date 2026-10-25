@@ -1,14 +1,23 @@
 import uuid
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 
-from shop.api.dependencies import get_db_sessions, get_payment_provider
-from shop.api.errors import InvalidRequest, Unauthorized
-from shop.db.models import Payment, PaymentStatus
-from shop.services.payments import start_cart_payment
+from shop.db import get_sessions
+from shop.payments.errors import (
+    CartNotFound,
+    CartNotPayable,
+    EmptyCart,
+    IdempotencyKeyReused,
+    PaymentConflict,
+    PaymentMethodNotFound,
+)
+from shop.payments.models import Payment, PaymentStatus
+from shop.payments.provider import PaymentProvider
+from shop.payments.service import start_cart_payment
+from shop.web.auth import current_user_id
+from shop.web.errors import ErrorResponses, InvalidRequest, register_error_responses
 
-payments_blueprint = Blueprint("payments", __name__)
-
+PROVIDER_EXTENSION = "shop.payment_provider"
 MAX_IDEMPOTENCY_KEY_LENGTH = 255
 
 HTTP_STATUS_BY_PAYMENT_STATUS = {
@@ -17,28 +26,36 @@ HTTP_STATUS_BY_PAYMENT_STATUS = {
     PaymentStatus.PENDING: 202,
 }
 
+PAYMENT_ERROR_RESPONSES: ErrorResponses = {
+    CartNotFound: (404, "cart_not_found"),
+    CartNotPayable: (409, "cart_not_payable"),
+    PaymentConflict: (409, "payment_conflict"),
+    EmptyCart: (422, "empty_cart"),
+    PaymentMethodNotFound: (422, "payment_method_not_found"),
+    IdempotencyKeyReused: (422, "idempotency_key_reused"),
+}
+
+payments_blueprint = Blueprint("payments", __name__)
+register_error_responses(payments_blueprint, PAYMENT_ERROR_RESPONSES)
+
 
 @payments_blueprint.post("/carts/<uuid:cart_id>/payments")
 def create_cart_payment(cart_id: uuid.UUID) -> tuple[Response, int]:
     payment = start_cart_payment(
-        sessions=get_db_sessions(),
-        provider=get_payment_provider(),
-        user_id=_current_user_id(),
+        sessions=get_sessions(),
+        provider=_payment_provider(),
+        user_id=current_user_id(),
         cart_id=cart_id,
         idempotency_key=_idempotency_key(),
         payment_method_id=_requested_payment_method_id(),
     )
-    return jsonify(_serialize_payment(payment)), HTTP_STATUS_BY_PAYMENT_STATUS[
-        PaymentStatus(payment.status)
-    ]
+    status_code = HTTP_STATUS_BY_PAYMENT_STATUS[PaymentStatus(payment.status)]
+    return jsonify(_serialize_payment(payment)), status_code
 
 
-def _current_user_id() -> uuid.UUID:
-    """Reads the user id that an upstream auth layer would set (see README)."""
-    try:
-        return uuid.UUID(request.headers["X-User-Id"])
-    except KeyError, ValueError:
-        raise Unauthorized("A valid X-User-Id header is required.") from None
+def _payment_provider() -> PaymentProvider:
+    provider: PaymentProvider = current_app.extensions[PROVIDER_EXTENSION]
+    return provider
 
 
 def _idempotency_key() -> str:

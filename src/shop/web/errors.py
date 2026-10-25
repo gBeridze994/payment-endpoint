@@ -3,17 +3,8 @@
 import logging
 from collections.abc import Callable
 
-from flask import Flask, Response, jsonify
+from flask import Blueprint, Flask, Response, jsonify
 from werkzeug.exceptions import HTTPException
-
-from shop.services.errors import (
-    CartNotFound,
-    CartNotPayable,
-    EmptyCart,
-    IdempotencyKeyReused,
-    PaymentConflict,
-    PaymentMethodNotFound,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -27,23 +18,25 @@ class Unauthorized(Exception):
 
 
 # Exception class -> (HTTP status, error code shown to the client).
-ERROR_RESPONSES: dict[type[Exception], tuple[int, str]] = {
+type ErrorResponses = dict[type[Exception], tuple[int, str]]
+
+REQUEST_ERROR_RESPONSES: ErrorResponses = {
     InvalidRequest: (400, "invalid_request"),
     Unauthorized: (401, "unauthorized"),
-    CartNotFound: (404, "cart_not_found"),
-    CartNotPayable: (409, "cart_not_payable"),
-    PaymentConflict: (409, "payment_conflict"),
-    EmptyCart: (422, "empty_cart"),
-    PaymentMethodNotFound: (422, "payment_method_not_found"),
-    IdempotencyKeyReused: (422, "idempotency_key_reused"),
 }
 
 
 def register_error_handlers(app: Flask) -> None:
-    for error_class, (status_code, code) in ERROR_RESPONSES.items():
-        app.register_error_handler(error_class, _error_handler(status_code, code))
+    """Handlers for errors that any part of the shop can raise."""
+    register_error_responses(app, REQUEST_ERROR_RESPONSES)
     app.register_error_handler(HTTPException, _handle_http_exception)
     app.register_error_handler(Exception, _handle_unexpected_error)
+
+
+def register_error_responses(target: Flask | Blueprint, responses: ErrorResponses) -> None:
+    """Maps each exception class to a JSON error response with the given status and code."""
+    for error_class, (status_code, code) in responses.items():
+        target.register_error_handler(error_class, _error_handler(status_code, code))
 
 
 def error_response(status_code: int, code: str, message: str) -> tuple[Response, int]:

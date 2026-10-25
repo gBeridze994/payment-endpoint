@@ -82,37 +82,42 @@ the columns the application uses, not the full schema.
 ## Project structure
 
 ```text
-src/shop/
-  app.py                    # create_app(): wires settings, database, provider, routes
+src/shop/                   # the online shop: what every part shares
+  app.py                    # create_app(): wires settings, database, error handling, modules
   config.py                 # Settings from environment variables
   wsgi.py                   # entry point for gunicorn
-  api/                      # HTTP layer
-    payments.py             #   POST /carts/{id}/payments: request parsing, response format
+  db.py                     # SQLAlchemy Base and the session factory
+  models.py                 # base-schema tables: User, Product, Cart, CartItem, UserPaymentMethod
+  web/                      # shared HTTP pieces
+    errors.py               #   JSON error responses, exception -> status mapping
+    auth.py                 #   current user from the X-User-Id header
     health.py               #   GET /health
-    errors.py               #   maps exceptions to JSON error responses
-    dependencies.py         #   access to the session factory and provider in a request
-  services/                 # business logic, no HTTP knowledge
-    payments.py             #   the payment flow
+  payments/                 # the payment part (this task), a self-contained module
+    __init__.py             #   init_app(): registers the routes and the payment provider
+    routes.py               #   POST /carts/{id}/payments, and its error responses
+    service.py              #   the payment flow, no HTTP knowledge
+    models.py               #   Payment, PaymentStatus
+    errors.py               #   payment errors
+    provider.py             #   payment provider interface + mock
     cart_total.py           #   stand-in for the existing total calculation service
-    errors.py               #   domain errors
-  db/
-    models.py               # SQLAlchemy models
-  integrations/
-    payment_provider.py     # payment provider interface + mock
 migrations/                 # Alembic (settings in pyproject.toml)
   sql/base_schema.sql       #   the base schema from the task, unchanged
   versions/
     0001_base_schema.py     #   applies sql/base_schema.sql
     0002_payments.py        #   the payments table
     0003_one_default_payment_method.py  # at most one default card per user
+    0004_updated_at_triggers.py         # database keeps updated_at current
 tests/                      # unit/ and integration/
 Dockerfile                  # multi-stage build, runs gunicorn as a non-root user
 docker-compose.yml          # db, migrate (one-off) and api services
 .github/workflows/ci.yml    # lint, type check and tests on every push and pull request
 ```
 
-The layers depend in one direction: `api` → `services` → `db` / `integrations`.
-The services raise domain errors. `api/errors.py` alone decides which HTTP status each one gets.
+`shop` holds what every part of the shop shares. Each part of the shop is its own module: this task
+adds `shop.payments`, and other parts (carts, orders, …) would sit next to it. Dependencies point one
+way: `payments` uses `shop`'s shared pieces, never the other way round. Inside the module,
+`service.py` raises payment errors and knows nothing about HTTP. `routes.py` alone decides which HTTP
+status each error gets.
 
 ## API
 
@@ -230,4 +235,6 @@ call fails, there is a record of the attempt, and the cart cannot be charged a s
 - **Base schema migration:** revision `0001` runs the provided SQL file as it is, so it is easy to compare
   with the task. Its sample data is kept for trying the API locally. Revision `0002` uses Alembic
   operations.
-- The base schema has no triggers for `updated_at`. The SQLAlchemy models set it when a row is updated.
+- **`updated_at`:** the base schema sets it only on insert. Revision `0004` adds a trigger that sets
+  it on every update that changes a row (`users`, `products`, `carts`, `payments`). The database keeps it
+  correct whoever writes: this app, another service or manual SQL.

@@ -1,15 +1,12 @@
 import logging
 
 from flask import Flask
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from shop.api import dependencies
-from shop.api.errors import register_error_handlers
-from shop.api.health import health_blueprint
-from shop.api.payments import payments_blueprint
+from shop import db, payments
 from shop.config import Settings
-from shop.integrations.payment_provider import MockPaymentProvider, PaymentProvider
+from shop.payments.provider import MockPaymentProvider, PaymentProvider
+from shop.web.errors import register_error_handlers
+from shop.web.health import health_blueprint
 
 LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 
@@ -21,14 +18,8 @@ def create_app(
     logging.basicConfig(level=settings.log_level, format=LOG_FORMAT)
 
     app = Flask(__name__)
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
-    dependencies.init_app(
-        app,
-        db_sessions=sessionmaker(engine, expire_on_commit=False),
-        payment_provider=payment_provider or MockPaymentProvider(),
-    )
-
-    app.register_blueprint(health_blueprint)
-    app.register_blueprint(payments_blueprint)
+    db.init_app(app, settings.database_url)
     register_error_handlers(app)
+    app.register_blueprint(health_blueprint)
+    payments.init_app(app, provider=payment_provider or MockPaymentProvider())
     return app
