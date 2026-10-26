@@ -14,6 +14,10 @@ class EmptyCart(PaymentError):
     pass
 
 
+class InvalidCartTotal(PaymentError):
+    pass
+
+
 class PaymentMethodNotFound(PaymentError):
     pass
 

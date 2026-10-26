@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+import psycopg
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,13 +13,17 @@ from shop.payments.errors import (
     CartNotPayable,
     EmptyCart,
     IdempotencyKeyReused,
+    InvalidCartTotal,
     PaymentConflict,
+    PaymentError,
     PaymentMethodNotFound,
 )
 from shop.payments.models import Payment, PaymentStatus
 from shop.payments.provider import PaymentProvider
 
 logger = logging.getLogger(__name__)
+
+IDEMPOTENCY_KEY_CONSTRAINT = "uq_payments_user_idempotency_key"
 
 
 def start_cart_payment(
@@ -49,6 +54,8 @@ def start_cart_payment(
 
             _ensure_cart_is_payable(session, cart)
             total = calculate_cart_total(cart)
+            if total.amount <= 0:
+                raise InvalidCartTotal(f"Cart total must be greater than 0, got {total.amount}.")
             payment = Payment(
                 user_id=user_id,
                 cart_id=cart_id,
@@ -59,7 +66,7 @@ def start_cart_payment(
             )
             session.add(payment)
     except IntegrityError as error:
-        raise PaymentConflict("Another payment request for this cart is in progress.") from error
+        raise _concurrent_request_error(error) from error
 
     logger.info("Charging payment %s for cart %s", payment.id, cart_id)
     charge = provider.charge(
@@ -80,6 +87,14 @@ def start_cart_payment(
             payment.failure_reason = charge.failure_reason
     logger.info("Payment %s for cart %s %s", payment.id, cart_id, payment.status)
     return payment
+
+
+def _concurrent_request_error(error: IntegrityError) -> PaymentError:
+    """Explains a unique constraint violation caused by a concurrent request."""
+    violated = error.orig.diag.constraint_name if isinstance(error.orig, psycopg.Error) else None
+    if violated == IDEMPOTENCY_KEY_CONSTRAINT:
+        return IdempotencyKeyReused("This idempotency key is used by another request.")
+    return PaymentConflict("Another payment request for this cart is in progress.")
 
 
 def _lock_users_cart(session: Session, user_id: uuid.UUID, cart_id: uuid.UUID) -> Cart:

@@ -12,6 +12,6 @@ def current_user_id() -> uuid.UUID:
     the user and pass their id in the X-User-Id header (see README).
     """
     try:
-        return uuid.UUID(request.headers["X-User-Id"])
-    except KeyError, ValueError:
+        return uuid.UUID(request.headers.get("X-User-Id", ""))
+    except ValueError:
         raise Unauthorized("A valid X-User-Id header is required.") from None

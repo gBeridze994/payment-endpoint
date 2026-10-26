@@ -8,6 +8,7 @@ from shop.payments.errors import (
     CartNotPayable,
     EmptyCart,
     IdempotencyKeyReused,
+    InvalidCartTotal,
     PaymentConflict,
     PaymentMethodNotFound,
 )
@@ -31,6 +32,7 @@ PAYMENT_ERROR_RESPONSES: ErrorResponses = {
     CartNotPayable: (409, "cart_not_payable"),
     PaymentConflict: (409, "payment_conflict"),
     EmptyCart: (422, "empty_cart"),
+    InvalidCartTotal: (422, "invalid_cart_total"),
     PaymentMethodNotFound: (422, "payment_method_not_found"),
     IdempotencyKeyReused: (422, "idempotency_key_reused"),
 }
