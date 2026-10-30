@@ -15,7 +15,7 @@ from shop.payments.errors import (
     PaymentConflict,
     PaymentError,
 )
-from shop.payments.models import Payment
+from shop.payments.models import Payment, PaymentStatus
 from shop.payments.provider import PaymentProvider
 from shop.payments.repository import PaymentRepository
 from shop.payments.schemas import StartCartPayment
@@ -83,7 +83,7 @@ class PaymentService:
         total = self._cart_total.calculate(cart)
         if total.amount <= 0:
             raise InvalidCartTotal(f"Cart total must be greater than 0, got {total.amount}.")
-        return self._payments.create_pending(
+        payment = Payment(
             user_id=command.user_id,
             cart_id=cart.id,
             payment_method_id=payment_method.id,
@@ -91,6 +91,8 @@ class PaymentService:
             currency=total.currency,
             idempotency_key=command.idempotency_key,
         )
+        self._payments.add(payment)
+        return payment
 
     def _ensure_cart_is_payable(self, cart: Cart) -> None:
         if cart.status != CartStatus.ACTIVE:
@@ -109,13 +111,13 @@ class PaymentService:
             idempotency_key=str(payment.id),
         )
         with self._session.begin():
+            payment.provider_payment_id = charge.provider_payment_id
             if charge.succeeded:
-                self._payments.mark_succeeded(payment, charge.provider_payment_id)
+                payment.status = PaymentStatus.SUCCEEDED
                 self._carts.check_out(cart)
             else:
-                self._payments.mark_failed(
-                    payment, charge.provider_payment_id, charge.failure_reason
-                )
+                payment.status = PaymentStatus.FAILED
+                payment.failure_reason = charge.failure_reason
         logger.info("Payment %s for cart %s %s", payment.id, cart.id, payment.status)
 
 
