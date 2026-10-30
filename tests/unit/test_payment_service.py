@@ -1,6 +1,8 @@
 """PaymentService with in-memory repositories injected in place of the database.
 
 The real CartService and PaymentMethodService are used, on top of fake repositories.
+The payment repository is the real one with only its queries replaced, so its
+create_pending() is tested too.
 """
 
 import contextlib
@@ -14,14 +16,27 @@ from shop.payment_methods import PaymentMethodService, UserPaymentMethod
 from shop.payments import MockPaymentProvider, PaymentStatus
 from shop.payments.cart_total import StubCartTotalService
 from shop.payments.errors import IdempotencyKeyReused, InvalidCartTotal
+from shop.payments.repository import PaymentRepository
 from shop.payments.schemas import StartCartPayment
 from shop.payments.service import PaymentService
 from shop.products import Product
 
 
 class FakeSession:
+    """Just enough of a Session for the service and PaymentRepository.create_pending()."""
+
+    def __init__(self):
+        self.added = []
+
     def begin(self):
         return contextlib.nullcontext()
+
+    def add(self, entity):
+        self.added.append(entity)
+
+    def flush(self):
+        for entity in self.added:
+            entity.id = entity.id or uuid.uuid4()
 
 
 class FakeCartRepository:
@@ -43,19 +58,14 @@ class FakePaymentMethodRepository:
         return next((m for m in self.payment_methods if m.is_default), None)
 
 
-class FakePaymentRepository:
-    def __init__(self):
-        self.payments = []
-
-    def add(self, payment):
-        payment.id = uuid.uuid4()
-        self.payments.append(payment)
-
+class FakePaymentRepository(PaymentRepository):
     def get_by_idempotency_key(self, user_id, idempotency_key):
-        return next((p for p in self.payments if p.idempotency_key == idempotency_key), None)
+        added = self._session.added
+        return next((p for p in added if p.idempotency_key == idempotency_key), None)
 
     def has_pending_for_cart(self, cart_id):
-        return any(p.status == PaymentStatus.PENDING for p in self.payments)
+        added = self._session.added
+        return any(p.cart_id == cart_id and p.status == PaymentStatus.PENDING for p in added)
 
 
 class SpyProvider(MockPaymentProvider):
@@ -88,9 +98,10 @@ def make_card(token, is_default=False):
 
 def make_service(cart, *cards):
     provider = SpyProvider()
+    session = FakeSession()
     service = PaymentService(
-        session=FakeSession(),
-        payments=FakePaymentRepository(),
+        session=session,
+        payments=FakePaymentRepository(session),
         carts=CartService(FakeCartRepository(cart)),
         payment_methods=PaymentMethodService(FakePaymentMethodRepository(*cards)),
         cart_total=StubCartTotalService(),
