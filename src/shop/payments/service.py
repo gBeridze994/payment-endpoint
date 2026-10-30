@@ -4,23 +4,21 @@ import psycopg
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from shop.models import Cart, CartStatus, UserPaymentMethod
+from shop.carts import Cart, CartService, CartStatus
+from shop.payment_methods import PaymentMethodService, UserPaymentMethod
 from shop.payments.cart_total import CartTotalService
 from shop.payments.errors import (
-    CartNotFound,
     CartNotPayable,
     EmptyCart,
     IdempotencyKeyReused,
     InvalidCartTotal,
     PaymentConflict,
     PaymentError,
-    PaymentMethodNotFound,
 )
 from shop.payments.models import Payment, PaymentStatus
 from shop.payments.provider import PaymentProvider
 from shop.payments.repository import PaymentRepository
 from shop.payments.schemas import StartCartPayment
-from shop.repositories import CartRepository, PaymentMethodRepository
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +28,8 @@ IDEMPOTENCY_KEY_CONSTRAINT = "uq_payments_user_idempotency_key"
 class PaymentService:
     """Charges a user's card for a cart.
 
-    The service owns the transactions; repositories only read and write rows.
+    The service owns the transactions: its repository and the services of
+    other modules (carts, payment methods) run inside them.
     The pending payment is committed before the provider is called, so a crash
     during the call leaves a record to reconcile instead of a lost charge. The
     provider is called outside any transaction, so no database lock is held
@@ -41,8 +40,8 @@ class PaymentService:
         self,
         session: Session,
         payments: PaymentRepository,
-        carts: CartRepository,
-        payment_methods: PaymentMethodRepository,
+        carts: CartService,
+        payment_methods: PaymentMethodService,
         cart_total: CartTotalService,
         provider: PaymentProvider,
     ) -> None:
@@ -57,8 +56,10 @@ class PaymentService:
         """Returns the payment: new, or the earlier one if the idempotency key was seen before."""
         try:
             with self._session.begin():
-                cart = self._lock_users_cart(command)
-                payment_method = self._find_payment_method(command)
+                cart = self._carts.lock_users_cart(command.cart_id, command.user_id)
+                payment_method = self._payment_methods.get_users_payment_method(
+                    command.user_id, command.payment_method_id
+                )
 
                 replayed_payment = self._payments.get_by_idempotency_key(
                     command.user_id, command.idempotency_key
@@ -74,22 +75,6 @@ class PaymentService:
 
         self._charge(payment, payment_method, cart)
         return payment
-
-    def _lock_users_cart(self, command: StartCartPayment) -> Cart:
-        """Locks the cart so concurrent payment requests for it run one at a time."""
-        cart = self._carts.get_for_update(command.cart_id, command.user_id)
-        if cart is None:
-            raise CartNotFound("Cart not found.")
-        return cart
-
-    def _find_payment_method(self, command: StartCartPayment) -> UserPaymentMethod:
-        if command.payment_method_id is None:
-            payment_method = self._payment_methods.get_default(command.user_id)
-        else:
-            payment_method = self._payment_methods.get(command.payment_method_id, command.user_id)
-        if payment_method is None:
-            raise PaymentMethodNotFound("Payment method not found.")
-        return payment_method
 
     def _create_pending_payment(
         self, cart: Cart, payment_method: UserPaymentMethod, command: StartCartPayment
@@ -129,7 +114,7 @@ class PaymentService:
             payment.provider_payment_id = charge.provider_payment_id
             if charge.succeeded:
                 payment.status = PaymentStatus.SUCCEEDED
-                cart.status = CartStatus.CHECKED_OUT
+                self._carts.check_out(cart)
             else:
                 payment.status = PaymentStatus.FAILED
                 payment.failure_reason = charge.failure_reason

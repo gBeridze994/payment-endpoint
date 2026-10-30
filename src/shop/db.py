@@ -11,6 +11,14 @@ class Base(DeclarativeBase):
     pass
 
 
+class Repository:
+    """Base class for repositories. They read and write rows but never commit:
+    transactions belong to the service that uses them."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+
 def init_app(app: Flask, database_url: str) -> None:
     engine = create_engine(database_url, pool_pre_ping=True)
     # Objects stay usable after commit: the payment flow commits before calling the provider.

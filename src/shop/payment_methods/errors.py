@@ -1,0 +1,2 @@
+class PaymentMethodNotFound(Exception):
+    pass

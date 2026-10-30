@@ -2,8 +2,8 @@ import uuid
 
 from sqlalchemy import exists, select
 
+from shop.db import Repository
 from shop.payments.models import Payment, PaymentStatus
-from shop.repositories import Repository
 
 
 class PaymentRepository(Repository):

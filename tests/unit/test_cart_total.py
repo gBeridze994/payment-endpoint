@@ -1,7 +1,8 @@
 from decimal import Decimal
 
-from shop.models import Cart, CartItem, Product
+from shop.carts import Cart, CartItem
 from shop.payments.cart_total import Money, StubCartTotalService
+from shop.products import Product
 
 
 def test_cart_total_sums_unit_price_times_quantity():

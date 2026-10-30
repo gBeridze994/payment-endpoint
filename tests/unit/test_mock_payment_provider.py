@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from shop.payments.provider import MockPaymentProvider
+from shop.payments import MockPaymentProvider
 
 
 def charge(card_token):

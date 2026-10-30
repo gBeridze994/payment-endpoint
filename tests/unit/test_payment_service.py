@@ -1,4 +1,7 @@
-"""PaymentService with in-memory fakes injected in place of the database and the provider."""
+"""PaymentService with in-memory repositories injected in place of the database.
+
+The real CartService and PaymentMethodService are used, on top of fake repositories.
+"""
 
 import contextlib
 import uuid
@@ -6,13 +9,14 @@ from decimal import Decimal
 
 import pytest
 
-from shop.models import Cart, CartItem, CartStatus, Product, UserPaymentMethod
+from shop.carts import Cart, CartItem, CartService, CartStatus
+from shop.payment_methods import PaymentMethodService, UserPaymentMethod
+from shop.payments import MockPaymentProvider, PaymentStatus
 from shop.payments.cart_total import StubCartTotalService
 from shop.payments.errors import IdempotencyKeyReused, InvalidCartTotal
-from shop.payments.models import PaymentStatus
-from shop.payments.provider import MockPaymentProvider
 from shop.payments.schemas import StartCartPayment
 from shop.payments.service import PaymentService
+from shop.products import Product
 
 
 class FakeSession:
@@ -20,7 +24,7 @@ class FakeSession:
         return contextlib.nullcontext()
 
 
-class FakeCarts:
+class FakeCartRepository:
     def __init__(self, cart):
         self.cart = cart
 
@@ -28,7 +32,7 @@ class FakeCarts:
         return self.cart if (self.cart.id, self.cart.user_id) == (cart_id, user_id) else None
 
 
-class FakePaymentMethods:
+class FakePaymentMethodRepository:
     def __init__(self, *payment_methods):
         self.payment_methods = payment_methods
 
@@ -39,7 +43,7 @@ class FakePaymentMethods:
         return next((m for m in self.payment_methods if m.is_default), None)
 
 
-class FakePayments:
+class FakePaymentRepository:
     def __init__(self):
         self.payments = []
 
@@ -86,9 +90,9 @@ def make_service(cart, *cards):
     provider = SpyProvider()
     service = PaymentService(
         session=FakeSession(),
-        payments=FakePayments(),
-        carts=FakeCarts(cart),
-        payment_methods=FakePaymentMethods(*cards),
+        payments=FakePaymentRepository(),
+        carts=CartService(FakeCartRepository(cart)),
+        payment_methods=PaymentMethodService(FakePaymentMethodRepository(*cards)),
         cart_total=StubCartTotalService(),
         provider=provider,
     )

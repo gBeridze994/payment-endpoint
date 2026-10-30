@@ -6,8 +6,10 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from shop.models import Cart, CartItem, CartStatus, Product, UserPaymentMethod
-from shop.payments.models import Payment, PaymentStatus
+from shop.carts import Cart, CartItem, CartStatus
+from shop.payment_methods import UserPaymentMethod
+from shop.payments import Payment, PaymentStatus
+from shop.products import Product
 
 
 def pay(client, cart_id, user_id, idempotency_key=None, json=None):

@@ -3,7 +3,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from shop.models import Cart
+from shop.carts import Cart
 
 
 class Money(BaseModel):

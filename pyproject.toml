@@ -15,6 +15,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "import-linter>=2.15",
     "mypy>=2.4.0",
     "pytest>=9.1.1",
     "ruff>=0.17.2",
@@ -49,6 +50,39 @@ strict = true
 packages = ["shop"]
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
+
+[tool.importlinter]
+root_package = "shop"
+
+[[tool.importlinter.contracts]]
+name = "shop.users is imported only through its package (__init__.py)"
+type = "protected"
+protected_modules = ["shop.users.*"]
+allowed_importers = ["shop.users"]
+
+[[tool.importlinter.contracts]]
+name = "shop.products is imported only through its package (__init__.py)"
+type = "protected"
+protected_modules = ["shop.products.*"]
+allowed_importers = ["shop.products"]
+
+[[tool.importlinter.contracts]]
+name = "shop.carts is imported only through its package (__init__.py)"
+type = "protected"
+protected_modules = ["shop.carts.*"]
+allowed_importers = ["shop.carts"]
+
+[[tool.importlinter.contracts]]
+name = "shop.payment_methods is imported only through its package (__init__.py)"
+type = "protected"
+protected_modules = ["shop.payment_methods.*"]
+allowed_importers = ["shop.payment_methods"]
+
+[[tool.importlinter.contracts]]
+name = "shop.payments is imported only through its package (__init__.py)"
+type = "protected"
+protected_modules = ["shop.payments.*"]
+allowed_importers = ["shop.payments"]
 
 [tool.alembic]
 script_location = "%(here)s/migrations"

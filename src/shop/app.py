@@ -4,7 +4,7 @@ from flask import Flask
 
 from shop import db, payments
 from shop.config import Settings
-from shop.payments.provider import MockPaymentProvider, PaymentProvider
+from shop.payments import MockPaymentProvider, PaymentProvider
 from shop.web.errors import register_error_handlers
 from shop.web.health import health_blueprint
 
