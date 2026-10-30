@@ -86,7 +86,7 @@ src/shop/                   # the online shop: what every part shares
   app.py                    # create_app(): wires settings, database, error handling, modules
   config.py                 # Settings from environment variables
   wsgi.py                   # entry point for gunicorn
-  db.py                     # SQLAlchemy Base, Repository base class, get_session() per request
+  db.py                     # Base, Repository base, session_scope(), get_session() per request
   web/                      # shared HTTP pieces
     injection.py            #   @inject: passes provider results to views
     validation.py           #   request data -> pydantic models, invalid data -> 400
@@ -167,6 +167,16 @@ external services. The view asks for it with `@inject(service=get_payment_servic
 decorator in `web/injection.py` that calls each provider when a request comes in. Because every
 dependency is passed in, the unit tests run `PaymentService` (with the real cart and payment-method
 services) on in-memory repositories and no database (`tests/unit/test_payment_service.py`).
+
+**Session lifecycle.** Every request runs inside `shop.db.session_scope()`, a context manager around
+the SQLAlchemy session: `before_request` enters it and `teardown_request` exits it. Flask runs
+teardown functions even when the request failed. Closing rolls back anything not committed and
+returns the connection to the pool. `get_session()` only hands out the current request's session.
+This is the Flask equivalent of a middleware that wraps each request in
+`with session_context() as session:`. Unlike such a middleware, it doesn't commit: `PaymentService`
+owns its transactions, because it must commit the pending payment before calling the provider.
+`tests/integration/test_db_session.py` checks that the session is closed after a success, a decline,
+a service error, an unexpected error and a health check.
 
 ## API
 
