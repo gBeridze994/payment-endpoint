@@ -1,7 +1,7 @@
 import uuid
 
 from shop.carts.errors import CartNotFound
-from shop.carts.models import Cart, CartStatus
+from shop.carts.models import Cart
 from shop.carts.repository import CartRepository
 
 
@@ -19,4 +19,4 @@ class CartService:
         return cart
 
     def check_out(self, cart: Cart) -> None:
-        cart.status = CartStatus.CHECKED_OUT
+        self._carts.mark_checked_out(cart)

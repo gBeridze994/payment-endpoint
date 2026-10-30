@@ -1,6 +1,7 @@
-"""PaymentService with in-memory repositories injected in place of the database.
+"""PaymentService with an in-memory session injected in place of the database.
 
-The real CartService and PaymentMethodService are used, on top of fake repositories.
+The real CartService and PaymentMethodService are used. The repositories are the
+real ones with only their queries replaced, so their write methods are tested too.
 """
 
 import contextlib
@@ -10,22 +11,37 @@ from decimal import Decimal
 import pytest
 
 from shop.carts import Cart, CartItem, CartService, CartStatus
+from shop.carts.repository import CartRepository
 from shop.payment_methods import PaymentMethodService, UserPaymentMethod
 from shop.payments import MockPaymentProvider, PaymentStatus
 from shop.payments.cart_total import StubCartTotalService
 from shop.payments.errors import IdempotencyKeyReused, InvalidCartTotal
+from shop.payments.repository import PaymentRepository
 from shop.payments.schemas import StartCartPayment
 from shop.payments.service import PaymentService
 from shop.products import Product
 
 
 class FakeSession:
+    """Just enough of a Session for the service and the repositories' write methods."""
+
+    def __init__(self):
+        self.added = []
+
     def begin(self):
         return contextlib.nullcontext()
 
+    def add(self, entity):
+        self.added.append(entity)
 
-class FakeCartRepository:
-    def __init__(self, cart):
+    def flush(self):
+        for entity in self.added:
+            entity.id = entity.id or uuid.uuid4()
+
+
+class FakeCartRepository(CartRepository):
+    def __init__(self, session, cart):
+        super().__init__(session)
         self.cart = cart
 
     def get_for_update(self, cart_id, user_id):
@@ -43,19 +59,14 @@ class FakePaymentMethodRepository:
         return next((m for m in self.payment_methods if m.is_default), None)
 
 
-class FakePaymentRepository:
-    def __init__(self):
-        self.payments = []
-
-    def add(self, payment):
-        payment.id = uuid.uuid4()
-        self.payments.append(payment)
-
+class FakePaymentRepository(PaymentRepository):
     def get_by_idempotency_key(self, user_id, idempotency_key):
-        return next((p for p in self.payments if p.idempotency_key == idempotency_key), None)
+        added = self._session.added
+        return next((p for p in added if p.idempotency_key == idempotency_key), None)
 
     def has_pending_for_cart(self, cart_id):
-        return any(p.status == PaymentStatus.PENDING for p in self.payments)
+        added = self._session.added
+        return any(p.cart_id == cart_id and p.status == PaymentStatus.PENDING for p in added)
 
 
 class SpyProvider(MockPaymentProvider):
@@ -88,10 +99,11 @@ def make_card(token, is_default=False):
 
 def make_service(cart, *cards):
     provider = SpyProvider()
+    session = FakeSession()
     service = PaymentService(
-        session=FakeSession(),
-        payments=FakePaymentRepository(),
-        carts=CartService(FakeCartRepository(cart)),
+        session=session,
+        payments=FakePaymentRepository(session),
+        carts=CartService(FakeCartRepository(session, cart)),
         payment_methods=PaymentMethodService(FakePaymentMethodRepository(*cards)),
         cart_total=StubCartTotalService(),
         provider=provider,
@@ -115,6 +127,7 @@ def test_successful_charge_checks_out_cart():
     payment = service.start_cart_payment(command(cart))
 
     assert payment.status == PaymentStatus.SUCCEEDED
+    assert payment.provider_payment_id.startswith("ch_mock_")
     assert payment.amount == Decimal("20.00")
     assert cart.status == CartStatus.CHECKED_OUT
     assert provider.charged_tokens == ["tok_visa"]
