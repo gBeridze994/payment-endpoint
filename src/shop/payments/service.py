@@ -83,7 +83,7 @@ class PaymentService:
         total = self._cart_total.calculate(cart)
         if total.amount <= 0:
             raise InvalidCartTotal(f"Cart total must be greater than 0, got {total.amount}.")
-        payment = Payment(
+        return self._payments.create_pending(
             user_id=command.user_id,
             cart_id=cart.id,
             payment_method_id=payment_method.id,
@@ -91,8 +91,6 @@ class PaymentService:
             currency=total.currency,
             idempotency_key=command.idempotency_key,
         )
-        self._payments.add(payment)
-        return payment
 
     def _ensure_cart_is_payable(self, cart: Cart) -> None:
         if cart.status != CartStatus.ACTIVE:
