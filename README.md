@@ -156,10 +156,7 @@ route ──@inject──▶ PaymentService
 - **`CartService` and `PaymentMethodService`** give other modules what they need from carts and
   payment methods. They run inside the caller's transaction (all services of a request share one
   session), so the cart lock and the payment insert commit together.
-- **Repositories** do every read and write for their own module's tables. They create entities
-  (`PaymentRepository.create_pending`) and change them (`mark_succeeded`, `mark_failed`,
-  `CartRepository.mark_checked_out`). Services decide *what* to write, never build or change
-  entities themselves. Repositories never commit.
+- **Repositories** only read and write rows, for their own module's tables. They never commit.
 - **External services** sit behind small interfaces (`CartTotalService`, `PaymentProvider`), so the
   real implementations can replace the stand-ins without touching the service.
 
