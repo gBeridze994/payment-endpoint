@@ -2,7 +2,7 @@ import uuid
 
 from sqlalchemy import text
 
-from shop.payments.models import Payment
+from shop.payments import Payment
 
 
 def updated_at(engine, user_id):

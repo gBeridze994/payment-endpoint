@@ -21,9 +21,10 @@ up:  ## Build and start everything (database, migrations, API on http://localhos
 down:  ## Stop all containers
 	docker compose down
 
-lint:  ## Check code style
+lint:  ## Check code style and module boundaries
 	uv run ruff check .
 	uv run ruff format --check .
+	uv run lint-imports
 
 format:  ## Fix code style
 	uv run ruff check --fix .

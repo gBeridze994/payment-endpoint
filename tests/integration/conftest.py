@@ -10,9 +10,12 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from shop import create_app
+from shop.carts import Cart, CartItem, CartStatus
 from shop.config import Settings
-from shop.models import Cart, CartItem, CartStatus, Product, User, UserPaymentMethod
-from shop.payments.provider import MockPaymentProvider
+from shop.payment_methods import UserPaymentMethod
+from shop.payments import MockPaymentProvider
+from shop.products import Product
+from shop.users import User
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/shop_test"

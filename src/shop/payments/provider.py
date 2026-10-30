@@ -1,11 +1,13 @@
 import uuid
-from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
 
+from pydantic import BaseModel, ConfigDict
 
-@dataclass(frozen=True)
-class ChargeResult:
+
+class ChargeResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     succeeded: bool
     provider_payment_id: str
     failure_reason: str | None = None
@@ -27,5 +29,9 @@ class MockPaymentProvider:
     ) -> ChargeResult:
         provider_payment_id = f"ch_mock_{uuid.uuid4().hex}"
         if self.DECLINED_TOKEN_MARKER in card_token:
-            return ChargeResult(False, provider_payment_id, failure_reason="card_declined")
-        return ChargeResult(True, provider_payment_id)
+            return ChargeResult(
+                succeeded=False,
+                provider_payment_id=provider_payment_id,
+                failure_reason="card_declined",
+            )
+        return ChargeResult(succeeded=True, provider_payment_id=provider_payment_id)

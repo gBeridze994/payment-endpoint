@@ -86,20 +86,28 @@ src/shop/                   # the online shop: what every part shares
   app.py                    # create_app(): wires settings, database, error handling, modules
   config.py                 # Settings from environment variables
   wsgi.py                   # entry point for gunicorn
-  db.py                     # SQLAlchemy Base and the session factory
-  models.py                 # base-schema tables: User, Product, Cart, CartItem, UserPaymentMethod
+  db.py                     # SQLAlchemy Base, Repository base class, get_session() per request
   web/                      # shared HTTP pieces
+    injection.py            #   @inject: passes provider results to views
+    validation.py           #   request data -> pydantic models, invalid data -> 400
     errors.py               #   JSON error responses, exception -> status mapping
     auth.py                 #   current user from the X-User-Id header
     health.py               #   GET /health
-  payments/                 # the payment part (this task), a self-contained module
+  users/                    # existing part: User model
+  products/                 # existing part: Product model
+  carts/                    # existing part: Cart, CartItem; CartService + CartRepository
+  payment_methods/          # existing part: UserPaymentMethod; PaymentMethodService + repository
+  payments/                 # the payment part (this task)
     __init__.py             #   init_app(): registers the routes and the payment provider
     routes.py               #   POST /carts/{id}/payments, and its error responses
-    service.py              #   the payment flow, no HTTP knowledge
+    dependencies.py         #   provider functions that build PaymentService for a request
+    service.py              #   PaymentService: the payment flow and its transactions
+    repository.py           #   PaymentRepository
+    schemas.py              #   pydantic DTOs: request, service command, response
     models.py               #   Payment, PaymentStatus
     errors.py               #   payment errors
-    provider.py             #   payment provider interface + mock
-    cart_total.py           #   stand-in for the existing total calculation service
+    provider.py             #   PaymentProvider interface + mock
+    cart_total.py           #   CartTotalService interface + stand-in
 migrations/                 # Alembic (settings in pyproject.toml)
   sql/base_schema.sql       #   the base schema from the task, unchanged
   versions/
@@ -107,17 +115,58 @@ migrations/                 # Alembic (settings in pyproject.toml)
     0002_payments.py        #   the payments table
     0003_one_default_payment_method.py  # at most one default card per user
     0004_updated_at_triggers.py         # database keeps updated_at current
-tests/                      # unit/ and integration/
+tests/                      # unit/ (no database) and integration/
 Dockerfile                  # multi-stage build, runs gunicorn as a non-root user
 docker-compose.yml          # db, migrate (one-off) and api services
 .github/workflows/ci.yml    # lint, type check and tests on every push and pull request
 ```
 
-`shop` holds what every part of the shop shares. Each part of the shop is its own module: this task
-adds `shop.payments`, and other parts (carts, orders, …) would sit next to it. Dependencies point one
-way: `payments` uses `shop`'s shared pieces, never the other way round. Inside the module,
-`service.py` raises payment errors and knows nothing about HTTP. `routes.py` alone decides which HTTP
-status each error gets.
+`shop` itself holds only what every part of the shop shares: app factory, config, database access
+and the HTTP plumbing in `web/`. Each part of the shop is its own module (`users`, `products`, `carts`,
+`payment_methods`, and `payments` from this task), and every module follows the same layout:
+`models.py`, `repository.py`, `service.py`, `errors.py`, `dependencies.py`.
+
+### Module boundaries
+
+- **A module's `__init__.py` is its public API.** It lists what other code may use in `__all__`,
+  e.g. `shop.carts` exports `Cart`, `CartStatus`, `CartService`, `CartNotFound` and
+  `get_cart_service`. Repositories are not exported: they are private to their module.
+- **Modules import each other only through the package:** `from shop.carts import CartService`,
+  never `from shop.carts.service import CartService`. This includes `app.py`.
+- **A module never reads another module's tables itself.** `PaymentService` asks `CartService` and
+  `PaymentMethodService` for what it needs, and they use their own repositories.
+- **`make lint` and CI enforce this** with [import-linter](https://import-linter.readthedocs.io/):
+  one `protected` contract per module in `pyproject.toml`. A direct import of, say,
+  `shop.carts.repository` from `shop.payments` fails the build.
+
+### Layers and dependency injection
+
+```text
+route ──@inject──▶ PaymentService
+                     ├── PaymentRepository
+                     ├── CartService ──▶ CartRepository                    (shop.carts)
+                     ├── PaymentMethodService ──▶ PaymentMethodRepository  (shop.payment_methods)
+                     ├── CartTotalService   (existing service; stand-in here)
+                     └── PaymentProvider    (external; mock here)
+```
+
+- **Routes** turn the request into pydantic DTOs, call the service, and turn the result into a
+  response. `routes.py` alone decides which HTTP status each payment error gets.
+- **`PaymentService`** holds the payment rules and owns the transactions. It knows nothing about HTTP.
+- **`CartService` and `PaymentMethodService`** give other modules what they need from carts and
+  payment methods. They run inside the caller's transaction (all services of a request share one
+  session), so the cart lock and the payment insert commit together.
+- **Repositories** only read and write rows, for their own module's tables. They never commit.
+- **External services** sit behind small interfaces (`CartTotalService`, `PaymentProvider`), so the
+  real implementations can replace the stand-ins without touching the service.
+
+Objects are built by provider functions, one `dependencies.py` per module. `get_cart_service()` and
+`get_payment_method_service()` build their service on the request's session (`shop.db.get_session`).
+`get_payment_service()` builds `PaymentService` from its repository, those two services and the
+external services. The view asks for it with `@inject(service=get_payment_service)`, a small
+decorator in `web/injection.py` that calls each provider when a request comes in. Because every
+dependency is passed in, the unit tests run `PaymentService` (with the real cart and payment-method
+services) on in-memory repositories and no database (`tests/unit/test_payment_service.py`).
 
 ## API
 
@@ -135,6 +184,9 @@ Optional JSON body:
 ```json
 { "payment_method_id": "<uuid>" }
 ```
+
+Unknown fields are rejected with `400`, so a typo such as `payment_methd_id` cannot silently charge
+the default card.
 
 If no payment method is given, the user's default payment method is used.
 A user has at most one default payment method (enforced by the database).
@@ -167,7 +219,7 @@ The amount is a string so no precision is lost.
 | 201    | The card was charged. The cart is now `checked_out`.                              |
 | 402    | The provider declined the card. The cart stays `active`, so the user can retry.  |
 | 202    | Replay of a request whose payment is still in progress.                          |
-| 400    | Missing or invalid `Idempotency-Key`, or an invalid body.                         |
+| 400    | Missing or invalid `Idempotency-Key`, or an invalid body (including unknown fields). |
 | 401    | Missing or invalid `X-User-Id`.                                                   |
 | 404    | The cart does not exist or belongs to another user.                               |
 | 409    | The cart is not active, or a payment for it is already in progress.              |
