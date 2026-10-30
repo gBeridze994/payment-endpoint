@@ -288,7 +288,14 @@ def test_request_without_valid_idempotency_key_is_rejected(
     assert response.status_code == 400
 
 
-@pytest.mark.parametrize("body", [{"payment_method_id": "not-a-uuid"}, ["not", "an", "object"]])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"payment_method_id": "not-a-uuid"},
+        ["not", "an", "object"],
+        {"payment_methd_id": "11111111-2222-3333-4444-555555555555"},
+    ],
+)
 def test_invalid_request_body_is_rejected(client, make_user, make_cart, body):
     user = make_user()
     cart = make_cart(user)

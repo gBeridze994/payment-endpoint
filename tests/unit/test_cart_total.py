@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from shop.models import Cart, CartItem, Product
-from shop.payments.cart_total import Money, calculate_cart_total
+from shop.payments.cart_total import Money, StubCartTotalService
 
 
 def test_cart_total_sums_unit_price_times_quantity():
@@ -13,4 +13,4 @@ def test_cart_total_sums_unit_price_times_quantity():
         ]
     )
 
-    assert calculate_cart_total(cart) == Money(amount=Decimal("38.49"), currency="EUR")
+    assert StubCartTotalService().calculate(cart) == Money(amount=Decimal("38.49"), currency="EUR")

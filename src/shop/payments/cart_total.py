@@ -1,20 +1,27 @@
-from dataclasses import dataclass
 from decimal import Decimal
+from typing import Protocol
+
+from pydantic import BaseModel, ConfigDict
 
 from shop.models import Cart
 
 
-@dataclass(frozen=True)
-class Money:
+class Money(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     amount: Decimal
     currency: str
 
 
-def calculate_cart_total(cart: Cart) -> Money:
-    """Stand-in for the existing payment total calculation service.
+class CartTotalService(Protocol):
+    """The existing payment total calculation service. It owns taxes, shipping and discounts."""
 
-    The real service owns taxes, shipping and discounts. This stub only sums
-    the cart items and assumes all products in a cart share one currency.
-    """
-    amount = sum((item.unit_price * item.quantity for item in cart.items), Decimal("0"))
-    return Money(amount=amount, currency=cart.items[0].product.currency)
+    def calculate(self, cart: Cart) -> Money: ...
+
+
+class StubCartTotalService:
+    """Stand-in for the real service: sums the cart items, assumes one currency per cart."""
+
+    def calculate(self, cart: Cart) -> Money:
+        amount = sum((item.unit_price * item.quantity for item in cart.items), Decimal("0"))
+        return Money(amount=amount, currency=cart.items[0].product.currency)
